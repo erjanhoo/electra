@@ -1,6 +1,12 @@
 from django.contrib import admin
 
-from .models import BillingProfile, CartItem, Order, OrderItem, Product, ProductReview
+from .models import BillingProfile, CartItem, Category, Order, OrderItem, Product, ProductReview
+
+
+@admin.register(Category)
+class CategoryAdmin(admin.ModelAdmin):
+	list_display = ('name', 'slug', 'updated_at')
+	search_fields = ('name', 'slug')
 
 
 @admin.register(Product)

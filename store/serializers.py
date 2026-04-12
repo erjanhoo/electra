@@ -1,10 +1,11 @@
 from django.contrib.auth.models import User
 from decimal import Decimal
+from django.utils.text import slugify
 
 from rest_framework import serializers
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 
-from .models import BillingProfile, CartItem, Order, OrderItem, Product, ProductReview
+from .models import BillingProfile, CartItem, Category, Order, OrderItem, Product, ProductReview
 from .permissions import is_admin_user
 
 
@@ -77,8 +78,81 @@ class EmailTokenObtainPairSerializer(TokenObtainPairSerializer):
         return super().validate(attrs)
 
 
-class ProductListSerializer(serializers.ModelSerializer):
-    category_label = serializers.CharField(source='get_category_display', read_only=True)
+class AdminCategorySerializer(serializers.ModelSerializer):
+    product_count = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Category
+        fields = ('id', 'name', 'slug', 'product_count', 'created_at', 'updated_at')
+        read_only_fields = ('id', 'product_count', 'created_at', 'updated_at')
+        extra_kwargs = {
+            'slug': {'required': False, 'allow_blank': True},
+        }
+
+    def get_product_count(self, obj):
+        product_count_map = self.context.get('product_count_map') or {}
+        return int(product_count_map.get(obj.slug, 0))
+
+    def validate_name(self, value):
+        name = value.strip()
+        if not name:
+            raise serializers.ValidationError('Category name is required.')
+
+        queryset = Category.objects.filter(name__iexact=name)
+        if self.instance:
+            queryset = queryset.exclude(pk=self.instance.pk)
+        if queryset.exists():
+            raise serializers.ValidationError('Category name already exists.')
+
+        return name
+
+    def validate_slug(self, value):
+        normalized = slugify(value.strip())
+        if not normalized:
+            raise serializers.ValidationError('Category slug is invalid.')
+
+        queryset = Category.objects.filter(slug=normalized)
+        if self.instance:
+            queryset = queryset.exclude(pk=self.instance.pk)
+        if queryset.exists():
+            raise serializers.ValidationError('Category slug already exists.')
+
+        return normalized
+
+    def create(self, validated_data):
+        if not validated_data.get('slug'):
+            base_slug = slugify(validated_data['name']) or 'category'
+            slug_candidate = base_slug
+            counter = 2
+            while Category.objects.filter(slug=slug_candidate).exists():
+                slug_candidate = f'{base_slug}-{counter}'
+                counter += 1
+            validated_data['slug'] = slug_candidate
+
+        return super().create(validated_data)
+
+
+class ProductCategoryLabelMixin:
+    def _category_name_map(self):
+        category_map = self.context.get('category_name_map')
+        if category_map is not None:
+            return category_map
+
+        if not hasattr(self, '_cached_category_name_map'):
+            self._cached_category_name_map = {
+                category.slug: category.name
+                for category in Category.objects.all().only('slug', 'name')
+            }
+
+        return self._cached_category_name_map
+
+    def get_category_label(self, obj):
+        category_map = self._category_name_map()
+        return category_map.get(obj.category, obj.category.replace('-', ' ').replace('_', ' ').title())
+
+
+class ProductListSerializer(ProductCategoryLabelMixin, serializers.ModelSerializer):
+    category_label = serializers.SerializerMethodField()
     in_stock = serializers.BooleanField(read_only=True)
     rating = serializers.SerializerMethodField()
     review_count = serializers.SerializerMethodField()
@@ -116,8 +190,8 @@ class ProductListSerializer(serializers.ModelSerializer):
         return int(review_count)
 
 
-class AdminProductSerializer(serializers.ModelSerializer):
-    category_label = serializers.CharField(source='get_category_display', read_only=True)
+class AdminProductSerializer(ProductCategoryLabelMixin, serializers.ModelSerializer):
+    category_label = serializers.SerializerMethodField()
     in_stock = serializers.BooleanField(read_only=True)
     rating = serializers.SerializerMethodField()
     review_count = serializers.SerializerMethodField()
@@ -163,6 +237,16 @@ class AdminProductSerializer(serializers.ModelSerializer):
             review_count = obj.review_count
         return int(review_count)
 
+    def validate_category(self, value):
+        slug = value.strip().lower()
+        if not slug:
+            raise serializers.ValidationError('Category is required.')
+
+        if not Category.objects.filter(slug=slug).exists():
+            raise serializers.ValidationError('Selected category does not exist.')
+
+        return slug
+
 
 class ProductDetailSerializer(ProductListSerializer):
     class Meta(ProductListSerializer.Meta):
@@ -174,8 +258,8 @@ class ProductDetailSerializer(ProductListSerializer):
         )
 
 
-class CartProductSerializer(serializers.ModelSerializer):
-    category_label = serializers.CharField(source='get_category_display', read_only=True)
+class CartProductSerializer(ProductCategoryLabelMixin, serializers.ModelSerializer):
+    category_label = serializers.SerializerMethodField()
     in_stock = serializers.BooleanField(read_only=True)
 
     class Meta:

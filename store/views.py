@@ -16,9 +16,10 @@ from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.views import TokenObtainPairView
 
-from .models import BillingProfile, CartItem, Order, OrderItem, Product, ProductReview
+from .models import BillingProfile, CartItem, Category, Order, OrderItem, Product, ProductReview
 from .permissions import IsAdminAccount
 from .serializers import (
+    AdminCategorySerializer,
     AdminOrderSerializer,
     AdminProductSerializer,
     BillingProfileSerializer,
@@ -339,6 +340,56 @@ class AdminProductDetailAPIView(RetrieveUpdateDestroyAPIView):
         return Response({'message': 'Product deactivated.', 'id': product.id, 'is_active': product.is_active})
 
 
+class AdminCategoryListCreateAPIView(ListCreateAPIView):
+    serializer_class = AdminCategorySerializer
+    permission_classes = [IsAdminAccount]
+    queryset = Category.objects.all().order_by('name', 'id')
+
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        context['product_count_map'] = {
+            item['category']: item['count']
+            for item in Product.objects.values('category').annotate(count=Count('id'))
+        }
+        return context
+
+
+class AdminCategoryDetailAPIView(RetrieveUpdateDestroyAPIView):
+    serializer_class = AdminCategorySerializer
+    permission_classes = [IsAdminAccount]
+    queryset = Category.objects.all()
+
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        context['product_count_map'] = {
+            item['category']: item['count']
+            for item in Product.objects.values('category').annotate(count=Count('id'))
+        }
+        return context
+
+    def perform_update(self, serializer):
+        old_slug = serializer.instance.slug
+
+        with transaction.atomic():
+            category = serializer.save()
+            if old_slug != category.slug:
+                Product.objects.filter(category=old_slug).update(category=category.slug)
+
+    def destroy(self, request, *args, **kwargs):
+        category = self.get_object()
+        product_count = Product.objects.filter(category=category.slug).count()
+
+        if product_count > 0:
+            return Response(
+                {'detail': f'Cannot delete category used by {product_count} products.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        slug = category.slug
+        category.delete()
+        return Response({'message': f'Category {slug} deleted.'}, status=status.HTTP_200_OK)
+
+
 class AdminOrderListAPIView(ListAPIView):
     serializer_class = AdminOrderSerializer
     permission_classes = [IsAdminAccount]
@@ -351,23 +402,40 @@ class ProductFiltersAPIView(APIView):
     permission_classes = [AllowAny]
 
     def get(self, request):
-        category_labels = dict(Product.CATEGORY_CHOICES)
-
         active_products = Product.objects.filter(is_active=True)
         categories = active_products.values('category').annotate(count=Count('id')).order_by('category')
+        category_counts = {item['category']: item['count'] for item in categories}
+
+        category_payload = []
+        for category in Category.objects.all().order_by('name', 'id'):
+            count = category_counts.pop(category.slug, 0)
+            if count <= 0:
+                continue
+            category_payload.append(
+                {
+                    'value': category.slug,
+                    'label': category.name,
+                    'count': count,
+                }
+            )
+
+        for slug, count in sorted(category_counts.items()):
+            if count <= 0:
+                continue
+            category_payload.append(
+                {
+                    'value': slug,
+                    'label': slug.replace('-', ' ').replace('_', ' ').title(),
+                    'count': count,
+                }
+            )
+
         brands = active_products.values('brand').annotate(count=Count('id')).order_by('brand')
         price_stats = active_products.aggregate(min_price=Min('price'), max_price=Max('price'))
 
         return Response(
             {
-                'categories': [
-                    {
-                        'value': item['category'],
-                        'label': category_labels.get(item['category'], item['category'].title()),
-                        'count': item['count'],
-                    }
-                    for item in categories
-                ],
+                'categories': category_payload,
                 'brands': [
                     {
                         'value': item['brand'],
