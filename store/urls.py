@@ -1,0 +1,45 @@
+from django.urls import path
+from rest_framework_simplejwt.views import TokenRefreshView
+
+from .views import (
+    AdminDashboardAPIView,
+    AdminOrderListAPIView,
+    AdminProductDetailAPIView,
+    AdminProductListCreateAPIView,
+    BillingProfileAPIView,
+    BillingTopUpAPIView,
+    CartAPIView,
+    CartItemAPIView,
+    CheckoutSimulationAPIView,
+    EmailTokenObtainPairView,
+    OrderDetailAPIView,
+    OrderHistoryAPIView,
+    ProductDetailAPIView,
+    ProductFiltersAPIView,
+    ProductListAPIView,
+    ProductReviewListCreateAPIView,
+    RegisterAPIView,
+    UserDetailAPIView,
+)
+
+urlpatterns = [
+    path('token/', EmailTokenObtainPairView.as_view(), name='token_obtain_pair'),
+    path('token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
+    path('register/', RegisterAPIView.as_view(), name='register'),
+    path('me/', UserDetailAPIView.as_view(), name='user_detail'),
+    path('cart/', CartAPIView.as_view(), name='cart'),
+    path('cart/items/<int:item_id>/', CartItemAPIView.as_view(), name='cart_item'),
+    path('billing/card/', BillingProfileAPIView.as_view(), name='billing_card'),
+    path('billing/top-up/', BillingTopUpAPIView.as_view(), name='billing_top_up'),
+    path('checkout/simulate/', CheckoutSimulationAPIView.as_view(), name='checkout_simulate'),
+    path('admin/dashboard/', AdminDashboardAPIView.as_view(), name='admin_dashboard'),
+    path('admin/products/', AdminProductListCreateAPIView.as_view(), name='admin_products'),
+    path('admin/products/<int:pk>/', AdminProductDetailAPIView.as_view(), name='admin_product_detail'),
+    path('admin/orders/', AdminOrderListAPIView.as_view(), name='admin_orders'),
+    path('orders/', OrderHistoryAPIView.as_view(), name='order_history'),
+    path('orders/<str:order_number>/', OrderDetailAPIView.as_view(), name='order_detail'),
+    path('products/', ProductListAPIView.as_view(), name='product_list'),
+    path('products/filters/', ProductFiltersAPIView.as_view(), name='product_filters'),
+    path('products/<slug:slug>/reviews/', ProductReviewListCreateAPIView.as_view(), name='product_reviews'),
+    path('products/<slug:slug>/', ProductDetailAPIView.as_view(), name='product_detail'),
+]
