@@ -27,6 +27,26 @@ def env_csv(name, default=''):
     raw = os.getenv(name, default)
     return [item.strip() for item in raw.split(',') if item and item.strip()]
 
+
+def normalize_host(value):
+    host = value.strip()
+    if not host:
+        return ''
+
+    if '://' in host:
+        host = host.split('://', 1)[1]
+
+    return host.split('/', 1)[0].strip()
+
+
+def env_hosts(name, default=''):
+    hosts = []
+    for item in env_csv(name, default):
+        normalized = normalize_host(item)
+        if normalized:
+            hosts.append(normalized)
+    return hosts
+
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -40,7 +60,13 @@ SECRET_KEY = os.getenv('DJANGO_SECRET_KEY', 'django-insecure-$7filoh_$#1o%*2rqb8
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = env_bool('DJANGO_DEBUG', default=True)
 
-ALLOWED_HOSTS = env_csv('DJANGO_ALLOWED_HOSTS', default='127.0.0.1,localhost,testserver')
+default_allowed_hosts = ['127.0.0.1', 'localhost', 'testserver', 'electra-production.up.railway.app']
+railway_public_domain = normalize_host(os.getenv('RAILWAY_PUBLIC_DOMAIN', ''))
+
+if railway_public_domain and railway_public_domain not in default_allowed_hosts:
+    default_allowed_hosts.append(railway_public_domain)
+
+ALLOWED_HOSTS = env_hosts('DJANGO_ALLOWED_HOSTS', default=','.join(default_allowed_hosts))
 
 
 # Application definition
