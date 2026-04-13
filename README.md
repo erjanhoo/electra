@@ -26,6 +26,8 @@ Optional:
 - `ELECTRA_BOOTSTRAP_ADMIN_FIRST_NAME`: optional first name.
 - `ELECTRA_BOOTSTRAP_ADMIN_LAST_NAME`: optional last name.
 - `ELECTRA_BOOTSTRAP_ADMIN_RESET_PASSWORD`: set to `true` if you want password reset on every deploy.
+- `ELECTRA_SEED_UPDATE_EXISTING`: default `true`, update existing seeded product info on startup.
+- `ELECTRA_SEED_REPLACE_IMAGES`: default `false`, replace seeded images on startup.
 
 ## Docker Behavior
 
@@ -33,6 +35,7 @@ On container start, the app runs:
 
 1. `python manage.py migrate`
 2. `python manage.py bootstrap_admin`
-3. `gunicorn electra_api.wsgi:application --bind 0.0.0.0:${PORT:-8000}`
+3. `python manage.py seed_products`
+4. `gunicorn electra_api.wsgi:application --bind 0.0.0.0:${PORT:-8000}`
 
 Static files are collected during image build.
