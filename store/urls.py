@@ -4,7 +4,9 @@ from rest_framework_simplejwt.views import TokenRefreshView
 from .views import (
     AdminCategoryDetailAPIView,
     AdminCategoryListCreateAPIView,
+    AdminCustomerListAPIView,
     AdminDashboardAPIView,
+    AdminAnalyticsAPIView,
     AdminOrderListAPIView,
     AdminProductDetailAPIView,
     AdminProductListCreateAPIView,
@@ -35,6 +37,8 @@ urlpatterns = [
     path('billing/top-up/', BillingTopUpAPIView.as_view(), name='billing_top_up'),
     path('checkout/simulate/', CheckoutSimulationAPIView.as_view(), name='checkout_simulate'),
     path('admin/dashboard/', AdminDashboardAPIView.as_view(), name='admin_dashboard'),
+    path('admin/customers/', AdminCustomerListAPIView.as_view(), name='admin_customers'),
+    path('admin/analytics/', AdminAnalyticsAPIView.as_view(), name='admin_analytics'),
     path('admin/categories/', AdminCategoryListCreateAPIView.as_view(), name='admin_categories'),
     path('admin/categories/<int:pk>/', AdminCategoryDetailAPIView.as_view(), name='admin_category_detail'),
     path('admin/products/', AdminProductListCreateAPIView.as_view(), name='admin_products'),

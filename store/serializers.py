@@ -405,6 +405,36 @@ class AdminOrderSerializer(OrderSerializer):
         return full_name or obj.user.username or obj.user.email
 
 
+class AdminCustomerSerializer(serializers.ModelSerializer):
+    full_name = serializers.SerializerMethodField()
+    is_admin = serializers.SerializerMethodField()
+    orders_count = serializers.IntegerField(read_only=True)
+    total_spent = serializers.DecimalField(max_digits=12, decimal_places=2, read_only=True)
+    last_order_at = serializers.DateTimeField(read_only=True)
+
+    class Meta:
+        model = User
+        fields = (
+            'id',
+            'full_name',
+            'username',
+            'email',
+            'is_admin',
+            'date_joined',
+            'last_login',
+            'orders_count',
+            'total_spent',
+            'last_order_at',
+        )
+
+    def get_full_name(self, obj):
+        full_name = obj.get_full_name().strip()
+        return full_name or obj.username or obj.email
+
+    def get_is_admin(self, obj):
+        return is_admin_user(obj)
+
+
 class BillingProfileSerializer(serializers.ModelSerializer):
     class Meta:
         model = BillingProfile

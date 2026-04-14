@@ -1,3 +1,4 @@
+from datetime import timedelta
 from django.contrib.auth.models import User
 from decimal import Decimal, InvalidOperation
 from random import randint
@@ -20,6 +21,7 @@ from .models import BillingProfile, CartItem, Category, Order, OrderItem, Produc
 from .permissions import IsAdminAccount
 from .serializers import (
     AdminCategorySerializer,
+    AdminCustomerSerializer,
     AdminOrderSerializer,
     AdminProductSerializer,
     BillingProfileSerializer,
@@ -396,6 +398,145 @@ class AdminOrderListAPIView(ListAPIView):
 
     def get_queryset(self):
         return Order.objects.all().select_related('user').prefetch_related('items')
+
+
+class AdminCustomerListAPIView(ListAPIView):
+    serializer_class = AdminCustomerSerializer
+    permission_classes = [IsAdminAccount]
+
+    def get_queryset(self):
+        queryset = User.objects.annotate(
+            orders_count=Coalesce(
+                Count('orders', distinct=True),
+                Value(0),
+                output_field=IntegerField(),
+            ),
+            total_spent=Coalesce(
+                Sum('orders__total_amount'),
+                Value(Decimal('0.00')),
+                output_field=DecimalField(max_digits=12, decimal_places=2),
+            ),
+            last_order_at=Max('orders__placed_at'),
+        ).order_by('-date_joined', '-id')
+
+        search = self.request.query_params.get('search', '').strip()
+        if search:
+            queryset = queryset.filter(
+                Q(first_name__icontains=search)
+                | Q(last_name__icontains=search)
+                | Q(username__icontains=search)
+                | Q(email__icontains=search)
+            )
+
+        return queryset
+
+
+class AdminAnalyticsAPIView(APIView):
+    permission_classes = [IsAdminAccount]
+
+    def get(self, request):
+        today = timezone.now().date()
+        start_date = today - timedelta(days=6)
+
+        orders = Order.objects.all()
+        revenue_total = orders.aggregate(total=Sum('total_amount'))['total'] or Decimal('0.00')
+        orders_total = orders.count()
+        users_total = User.objects.count()
+        products_total = Product.objects.count()
+        avg_order_value = (revenue_total / orders_total).quantize(Decimal('0.01')) if orders_total else Decimal('0.00')
+
+        revenue_map = {}
+        for offset in range(7):
+            date = start_date + timedelta(days=offset)
+            revenue_map[date] = {
+                'revenue': Decimal('0.00'),
+                'orders': 0,
+            }
+
+        recent_orders = orders.filter(placed_at__date__gte=start_date).only('placed_at', 'total_amount')
+        for order in recent_orders:
+            order_date = order.placed_at.date()
+            if order_date not in revenue_map:
+                continue
+
+            revenue_map[order_date]['revenue'] += order.total_amount
+            revenue_map[order_date]['orders'] += 1
+
+        revenue_series = [
+            {
+                'date': point.isoformat(),
+                'label': point.strftime('%b %d'),
+                'orders': payload['orders'],
+                'revenue': payload['revenue'].quantize(Decimal('0.01')),
+            }
+            for point, payload in revenue_map.items()
+        ]
+
+        top_products = [
+            {
+                'product_slug': item['product_slug'],
+                'product_name': item['product_name'],
+                'brand': item['product_brand'],
+                'quantity_sold': item['quantity_sold'],
+                'revenue': item['revenue'],
+            }
+            for item in OrderItem.objects.values('product_slug', 'product_name', 'product_brand')
+            .annotate(
+                quantity_sold=Coalesce(
+                    Sum('quantity'),
+                    Value(0),
+                    output_field=IntegerField(),
+                ),
+                revenue=Coalesce(
+                    Sum('line_total'),
+                    Value(Decimal('0.00')),
+                    output_field=DecimalField(max_digits=12, decimal_places=2),
+                ),
+            )
+            .order_by('-quantity_sold', '-revenue', 'product_name')[:5]
+        ]
+
+        category_name_map = {
+            category.slug: category.name
+            for category in Category.objects.all().only('slug', 'name')
+        }
+        category_distribution = [
+            {
+                'category': item['category'],
+                'label': category_name_map.get(
+                    item['category'],
+                    item['category'].replace('-', ' ').replace('_', ' ').title(),
+                ),
+                'count': item['count'],
+            }
+            for item in Product.objects.values('category').annotate(count=Count('id')).order_by('-count', 'category')
+        ]
+
+        status_breakdown = [
+            {
+                'status': item['status'],
+                'count': item['count'],
+            }
+            for item in orders.values('status').annotate(count=Count('id')).order_by('status')
+        ]
+
+        return Response(
+            {
+                'kpis': {
+                    'revenue_total': revenue_total.quantize(Decimal('0.01')),
+                    'orders_total': orders_total,
+                    'orders_today': orders.filter(placed_at__date=today).count(),
+                    'users_total': users_total,
+                    'products_total': products_total,
+                    'active_products': Product.objects.filter(is_active=True).count(),
+                    'avg_order_value': avg_order_value,
+                },
+                'revenue_series': revenue_series,
+                'top_products': top_products,
+                'category_distribution': category_distribution,
+                'status_breakdown': status_breakdown,
+            }
+        )
 
 
 class ProductFiltersAPIView(APIView):
